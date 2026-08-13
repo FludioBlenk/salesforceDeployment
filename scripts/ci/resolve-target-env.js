@@ -43,6 +43,7 @@ function main() {
     toOutput('envName', env.name);
     toOutput('authSecret', env.authSecret);
     toOutput('testLevel', env.testLevel || 'RunLocalTests');
+    toOutput('promotionTarget', env.promotionTarget || '');
     return;
   }
 

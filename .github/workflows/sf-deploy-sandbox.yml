@@ -5,10 +5,11 @@ on:
     branches:
       - '**'
 
-# Write permission is required so the revert-on-failure job can push the
-# rollback commit when a deployment fails.
+# contents:write  — revert-on-failure pushes rollback commits
+# pull-requests:write — create-promotion-pr opens the next-env PR
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: sandbox-deploy-${{ github.ref_name }}
@@ -22,6 +23,7 @@ jobs:
       envName: ${{ steps.resolve.outputs.envName }}
       authSecret: ${{ steps.resolve.outputs.authSecret }}
       testLevel: ${{ steps.resolve.outputs.testLevel }}
+      promotionTarget: ${{ steps.resolve.outputs.promotionTarget }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -92,3 +94,53 @@ jobs:
 
           git commit -m "revert: auto-rollback — deployment to ${{ needs.resolve-target.outputs.envName }} failed [skip ci]"
           git push origin HEAD:${{ github.ref_name }}
+
+  # After a successful deploy, automatically open a PR to promote the changes
+  # to the next environment defined by promotionTarget in branch-environments.json.
+  # The PR still requires a human to review and approve before the next deploy runs.
+  # No PR is opened when promotionTarget is empty (e.g. the top environment).
+  create-promotion-pr:
+    needs: [resolve-target, deploy-to-sandbox]
+    if: needs.deploy-to-sandbox.result == 'success' && needs.resolve-target.outputs.promotionTarget != ''
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Open promotion PR to next environment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          TARGET_BRANCH: ${{ needs.resolve-target.outputs.promotionTarget }}
+          ENV_NAME: ${{ needs.resolve-target.outputs.envName }}
+        shell: bash
+        run: |
+          # Check whether a promotion PR already exists to avoid duplicates.
+          EXISTING=$(gh pr list \
+            --base "$TARGET_BRANCH" \
+            --head "$SOURCE_BRANCH" \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$EXISTING" ]; then
+            echo "Promotion PR #$EXISTING already open from $SOURCE_BRANCH → $TARGET_BRANCH. Skipping."
+            exit 0
+          fi
+
+          gh pr create \
+            --base "$TARGET_BRANCH" \
+            --head "$SOURCE_BRANCH" \
+            --title "chore: promote $SOURCE_BRANCH → $TARGET_BRANCH after successful $ENV_NAME deploy" \
+            --body "## Automated Promotion PR
+
+This PR was opened automatically by GitHub Actions after a **successful deployment to $ENV_NAME**.
+
+**Source branch:** \`$SOURCE_BRANCH\`
+**Target branch:** \`$TARGET_BRANCH\`
+
+### Before merging
+- Review the changes included in this promotion.
+- PR validation (check-only deploy to the target org) will run automatically.
+- Merge only when validation passes and the changes are approved."

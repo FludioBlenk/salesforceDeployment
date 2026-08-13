@@ -4,12 +4,14 @@
     "develop": {
       "name": "DEV_SANDBOX",
       "authSecret": "SF_AUTH_URL_DEV",
-      "testLevel": "RunLocalTests"
+      "testLevel": "RunLocalTests",
+      "promotionTarget": "uat"
     },
     "uat": {
       "name": "UAT_SANDBOX",
       "authSecret": "SF_AUTH_URL_UAT",
-      "testLevel": "RunLocalTests"
+      "testLevel": "RunLocalTests",
+      "promotionTarget": "master"
     }
   },
   "production": {

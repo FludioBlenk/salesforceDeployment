@@ -8,51 +8,72 @@ This repository is configured for branch-driven Salesforce deployments with GitH
 flowchart TD
     DEV_PUSH["Push to\nfeature/**"]
     MANIFEST["sf-manifest-feature.yml\nGenerate delta manifest\nmanifest/branches/*.xml"]
-    PR_OPEN["Open Pull Request\nfeature → develop / uat / master"]
-    PR_VAL["sf-validate-pr.yml\nCheck-only deploy (dry-run)\nDelta manifest → target org"]
-    PR_FAIL["❌ PR Validation Fails\nBranch blocked — fix and re-push"]
-    PR_PASS["✅ PR Validation Passes\nMerge allowed"]
+    PR_OPEN["Developer opens PR\nfeature → develop"]
+    PR_VAL_DEV["sf-validate-pr.yml\nCheck-only deploy (dry-run)\nDelta manifest → DEV sandbox"]
+    PR_FAIL_DEV["❌ Validation Fails\nPR blocked — fix and re-push"]
+    PR_PASS_DEV["✅ Validation Passes\nMerge allowed"]
+
     MERGE_DEV["Merge into develop"]
     DEPLOY_DEV["sf-deploy-sandbox.yml\nDeploy force-app/ → DEV sandbox\nRunLocalTests"]
-    REVERT_DEV["revert-on-failure\nAuto-revert commit pushed\nto develop [skip ci]"]
-    SUCCESS_DEV["✅ DEV deploy success\ndevelop branch = DEV state"]
+    REVERT_DEV["revert-on-failure\nAuto-revert commit [skip ci]\npushed to develop"]
+    SUCCESS_DEV["✅ DEV deploy success"]
+    AUTO_PR_UAT["🤖 GitHub Actions\nAuto-opens PR: develop → uat"]
 
-    MERGE_UAT["Merge into uat\n(new PR: develop → uat)"]
+    PR_VAL_UAT["sf-validate-pr.yml\nCheck-only deploy (dry-run)\nDelta manifest → UAT sandbox"]
+    PR_FAIL_UAT["❌ Validation Fails\nPR blocked"]
+    PR_PASS_UAT["✅ Validation Passes\nMerge allowed"]
+    MERGE_UAT["Merge into uat"]
     DEPLOY_UAT["sf-deploy-sandbox.yml\nDeploy force-app/ → UAT sandbox\nRunLocalTests"]
-    REVERT_UAT["revert-on-failure\nAuto-revert commit pushed\nto uat [skip ci]"]
-    SUCCESS_UAT["✅ UAT deploy success\nuat branch = UAT state"]
+    REVERT_UAT["revert-on-failure\nAuto-revert commit [skip ci]\npushed to uat"]
+    SUCCESS_UAT["✅ UAT deploy success"]
+    AUTO_PR_PROD["🤖 GitHub Actions\nAuto-opens PR: uat → master"]
 
-    MERGE_PROD["Merge into master\n(new PR: uat → master)"]
+    PR_VAL_PROD["sf-validate-pr.yml\nCheck-only deploy (dry-run)\nDelta manifest → Production"]
+    PR_FAIL_PROD["❌ Validation Fails\nPR blocked"]
+    PR_PASS_PROD["✅ Validation Passes\nMerge allowed"]
+    MERGE_PROD["Merge into master"]
     DEPLOY_PROD["sf-deploy-production-from-master.yml\nDeploy force-app/ → Production\nRunLocalTests"]
-    REVERT_PROD["revert-on-failure\nAuto-revert commit pushed\nto master [skip ci]"]
+    REVERT_PROD["revert-on-failure\nAuto-revert commit [skip ci]\npushed to master"]
     SUCCESS_PROD["✅ Production deploy success\nproduction tracking branch updated"]
 
-    CONFIG["config/branch-environments.json\nAdd/remove envs here — no workflow changes needed"]
+    HUMAN["👤 Human approval\nrequired to merge"]
+    CONFIG["config/branch-environments.json\npromotionTarget controls the chain\nAdd/remove envs — no workflow changes"]
 
     DEV_PUSH --> MANIFEST
     DEV_PUSH --> PR_OPEN
-    PR_OPEN --> PR_VAL
-    PR_VAL --> PR_FAIL
-    PR_VAL --> PR_PASS
-    PR_PASS --> MERGE_DEV
+    PR_OPEN --> PR_VAL_DEV
+    PR_VAL_DEV --> PR_FAIL_DEV
+    PR_VAL_DEV --> PR_PASS_DEV
+    PR_PASS_DEV --> MERGE_DEV
 
     MERGE_DEV --> DEPLOY_DEV
     DEPLOY_DEV -- "failure" --> REVERT_DEV
     DEPLOY_DEV -- "success" --> SUCCESS_DEV
+    SUCCESS_DEV --> AUTO_PR_UAT
 
-    SUCCESS_DEV --> MERGE_UAT
+    AUTO_PR_UAT --> HUMAN
+    HUMAN --> PR_VAL_UAT
+    PR_VAL_UAT --> PR_FAIL_UAT
+    PR_VAL_UAT --> PR_PASS_UAT
+    PR_PASS_UAT --> MERGE_UAT
+
     MERGE_UAT --> DEPLOY_UAT
     DEPLOY_UAT -- "failure" --> REVERT_UAT
     DEPLOY_UAT -- "success" --> SUCCESS_UAT
+    SUCCESS_UAT --> AUTO_PR_PROD
 
-    SUCCESS_UAT --> MERGE_PROD
+    AUTO_PR_PROD --> HUMAN
+    HUMAN --> PR_VAL_PROD
+    PR_VAL_PROD --> PR_FAIL_PROD
+    PR_VAL_PROD --> PR_PASS_PROD
+    PR_PASS_PROD --> MERGE_PROD
+
     MERGE_PROD --> DEPLOY_PROD
     DEPLOY_PROD -- "failure" --> REVERT_PROD
     DEPLOY_PROD -- "success" --> SUCCESS_PROD
 
-    CONFIG -. "drives all env mappings" .-> DEPLOY_DEV
-    CONFIG -. "drives all env mappings" .-> DEPLOY_UAT
-    CONFIG -. "drives all env mappings" .-> DEPLOY_PROD
+    CONFIG -. "promotionTarget chain" .-> AUTO_PR_UAT
+    CONFIG -. "promotionTarget chain" .-> AUTO_PR_PROD
 ```
 
 ## Branching Model
