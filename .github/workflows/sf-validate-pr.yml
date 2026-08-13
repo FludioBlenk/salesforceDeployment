@@ -1,0 +1,74 @@
+name: Salesforce PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-target:
+    runs-on: ubuntu-latest
+    outputs:
+      isDeployable: ${{ steps.resolve.outputs.isDeployable }}
+      envName: ${{ steps.resolve.outputs.envName }}
+      authSecret: ${{ steps.resolve.outputs.authSecret }}
+      testLevel: ${{ steps.resolve.outputs.testLevel }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve target from base branch
+        id: resolve
+        run: node scripts/ci/resolve-target-env.js sandbox "${{ github.base_ref }}"
+
+  validate-deployment:
+    needs: resolve-target
+    if: needs.resolve-target.outputs.isDeployable == 'true' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Fetch PR base branch
+        run: git fetch origin "${{ github.base_ref }}"
+
+      - name: Generate PR delta manifest
+        id: manifest
+        shell: bash
+        run: |
+          SAFE_BRANCH_NAME=${GITHUB_HEAD_REF//\//-}
+          MANIFEST_PATH="manifest/ci/${SAFE_BRANCH_NAME}.package.xml"
+          node scripts/ci/generate-branch-manifest.js \
+            --base "origin/${{ github.base_ref }}" \
+            --head "${GITHUB_SHA}" \
+            --branch "${GITHUB_HEAD_REF}" \
+            --output "$MANIFEST_PATH"
+          echo "path=$MANIFEST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to target org
+        shell: bash
+        run: |
+          echo "${{ secrets[needs.resolve-target.outputs.authSecret] }}" > ./SFDX_AUTH_URL.txt
+          sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias ci-target
+
+      - name: Validate deployment (check only)
+        run: |
+          sf project deploy start \
+            --manifest "${{ steps.manifest.outputs.path }}" \
+            --target-org ci-target \
+            --test-level "${{ needs.resolve-target.outputs.testLevel }}" \
+            --dry-run \
+            --wait 120

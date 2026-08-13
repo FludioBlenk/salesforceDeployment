@@ -1,0 +1,63 @@
+name: Salesforce Feature Manifest
+
+on:
+  push:
+    branches:
+      - feature/**
+
+permissions:
+  contents: write
+
+jobs:
+  generate-feature-manifest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Resolve feature base branch
+        id: base
+        shell: bash
+        run: |
+          BASE_BRANCH=$(node -e "const c=require('./config/branch-environments.json'); process.stdout.write(c.defaultFeatureBaseBranch || 'master');")
+          echo "base=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch base branch
+        run: git fetch origin "${{ steps.base.outputs.base }}"
+
+      - name: Generate feature manifest
+        id: manifest
+        shell: bash
+        run: |
+          SAFE_BRANCH_NAME=${GITHUB_REF_NAME//\//-}
+          MANIFEST_PATH="manifest/branches/${SAFE_BRANCH_NAME}.package.xml"
+          node scripts/ci/generate-branch-manifest.js \
+            --base "origin/${{ steps.base.outputs.base }}" \
+            --head "${GITHUB_SHA}" \
+            --branch "${GITHUB_REF_NAME}" \
+            --output "$MANIFEST_PATH"
+          echo "path=$MANIFEST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Commit manifest changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${{ steps.manifest.outputs.path }}"
+          if git diff --cached --quiet; then
+            echo "No manifest changes to commit."
+            exit 0
+          fi
+          git commit -m "ci: update feature manifest for ${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

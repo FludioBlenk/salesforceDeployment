@@ -1,0 +1,94 @@
+name: Salesforce Sandbox Deployment
+
+on:
+  push:
+    branches:
+      - '**'
+
+# Write permission is required so the revert-on-failure job can push the
+# rollback commit when a deployment fails.
+permissions:
+  contents: write
+
+concurrency:
+  group: sandbox-deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-target:
+    runs-on: ubuntu-latest
+    outputs:
+      isDeployable: ${{ steps.resolve.outputs.isDeployable }}
+      envName: ${{ steps.resolve.outputs.envName }}
+      authSecret: ${{ steps.resolve.outputs.authSecret }}
+      testLevel: ${{ steps.resolve.outputs.testLevel }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve sandbox target from branch
+        id: resolve
+        run: node scripts/ci/resolve-target-env.js sandbox "${{ github.ref_name }}"
+
+  deploy-to-sandbox:
+    needs: resolve-target
+    if: needs.resolve-target.outputs.isDeployable == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Authenticate to sandbox
+        shell: bash
+        run: |
+          echo "${{ secrets[needs.resolve-target.outputs.authSecret] }}" > ./SFDX_AUTH_URL.txt
+          sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias deploy-target
+          rm -f ./SFDX_AUTH_URL.txt
+
+      - name: Deploy source to sandbox
+        run: |
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org deploy-target \
+            --test-level "${{ needs.resolve-target.outputs.testLevel }}" \
+            --wait 120
+
+  # Automatically reverts the merge commit when a deployment fails so the
+  # environment branch is never left in a broken state.
+  # The revert commit includes [skip ci] to prevent a deploy re-trigger loop.
+  # NOTE: This push requires that branch protection for environment branches
+  # either allows the github-actions bot to bypass push restrictions, or that
+  # "Allow specified actors to bypass required pull requests" is enabled for
+  # the GitHub Actions app.
+  revert-on-failure:
+    needs: [resolve-target, deploy-to-sandbox]
+    if: needs.deploy-to-sandbox.result == 'failure'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Revert failed merge commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Detect whether HEAD is a merge commit (2 parents) or a squash/direct commit.
+          PARENT_COUNT=$(git cat-file -p HEAD | grep -c "^parent ")
+          if [ "$PARENT_COUNT" -gt 1 ]; then
+            git revert -m 1 --no-commit HEAD
+          else
+            git revert --no-commit HEAD
+          fi
+
+          git commit -m "revert: auto-rollback — deployment to ${{ needs.resolve-target.outputs.envName }} failed [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}

@@ -12,6 +12,8 @@
     "test:unit:coverage": "sfdx-lwc-jest --coverage",
     "prettier": "prettier --write \"**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}\"",
     "prettier:verify": "prettier --check \"**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}\"",
+    "manifest:branch": "node scripts/ci/generate-branch-manifest.js",
+    "ci:resolve-target": "node scripts/ci/resolve-target-env.js",
     "prepare": "husky || true",
     "precommit": "lint-staged"
   },

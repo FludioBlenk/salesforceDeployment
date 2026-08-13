@@ -1,0 +1,22 @@
+{
+  "defaultFeatureBaseBranch": "develop",
+  "environments": {
+    "develop": {
+      "name": "DEV_SANDBOX",
+      "authSecret": "SF_AUTH_URL_DEV",
+      "testLevel": "RunLocalTests"
+    },
+    "uat": {
+      "name": "UAT_SANDBOX",
+      "authSecret": "SF_AUTH_URL_UAT",
+      "testLevel": "RunLocalTests"
+    }
+  },
+  "production": {
+    "sourceBranch": "master",
+    "trackingBranch": "production",
+    "name": "PRODUCTION",
+    "authSecret": "SF_AUTH_URL_PROD",
+    "testLevel": "RunLocalTests"
+  }
+}

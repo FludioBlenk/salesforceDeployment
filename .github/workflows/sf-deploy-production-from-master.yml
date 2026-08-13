@@ -1,0 +1,103 @@
+name: Salesforce Production Deployment
+
+on:
+  push:
+    branches:
+      - master
+
+# Write permission is required so the revert-on-failure job can push the
+# rollback commit when a deployment fails.
+permissions:
+  contents: write
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  resolve-target:
+    runs-on: ubuntu-latest
+    outputs:
+      isDeployable: ${{ steps.resolve.outputs.isDeployable }}
+      sourceBranch: ${{ steps.resolve.outputs.sourceBranch }}
+      trackingBranch: ${{ steps.resolve.outputs.trackingBranch }}
+      authSecret: ${{ steps.resolve.outputs.authSecret }}
+      testLevel: ${{ steps.resolve.outputs.testLevel }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve production settings
+        id: resolve
+        run: node scripts/ci/resolve-target-env.js production "${{ github.ref_name }}"
+
+  deploy-production:
+    needs: resolve-target
+    if: needs.resolve-target.outputs.isDeployable == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Authenticate to production org
+        shell: bash
+        run: |
+          echo "${{ secrets[needs.resolve-target.outputs.authSecret] }}" > ./SFDX_AUTH_URL.txt
+          sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias prod-target
+          rm -f ./SFDX_AUTH_URL.txt
+
+      - name: Deploy source to production
+        run: |
+          sf project deploy start \
+            --source-dir force-app \
+            --target-org prod-target \
+            --test-level "${{ needs.resolve-target.outputs.testLevel }}" \
+            --wait 120
+
+      - name: Sync production tracking branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git push origin "${GITHUB_SHA}:${{ needs.resolve-target.outputs.trackingBranch }}"
+
+  # Automatically reverts the merge commit on production (master) when the
+  # deployment fails. Because production deployments can have significant
+  # business impact, this rollback uses [skip ci] so the revert itself does
+  # NOT trigger another deploy run.
+  # NOTE: For master with strict branch protection you may need to allow the
+  # GitHub Actions app to bypass push restrictions.
+  revert-on-failure:
+    needs: [resolve-target, deploy-production]
+    if: needs.deploy-production.result == 'failure'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Revert failed merge commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Detect whether HEAD is a merge commit (2 parents) or a squash/direct commit.
+          PARENT_COUNT=$(git cat-file -p HEAD | grep -c "^parent ")
+          if [ "$PARENT_COUNT" -gt 1 ]; then
+            git revert -m 1 --no-commit HEAD
+          else
+            git revert --no-commit HEAD
+          fi
+
+          git commit -m "revert: auto-rollback — production deployment failed [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
