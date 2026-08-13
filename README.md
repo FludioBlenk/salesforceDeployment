@@ -128,6 +128,27 @@ Create these repository secrets (or rename in config):
 
 Each value must be an SFDX auth URL for the corresponding org.
 
+## One-Time Interactive Org Authentication Setup
+
+If you want to type an org login URL, sign in as yourself in the browser, and assign that auth to a specific pipeline environment, use:
+
+`npm run auth:bootstrap`
+
+What it does:
+
+1. Reads targets from `config/branch-environments.json`.
+2. Prompts you to pick the environment branch (`develop`, `uat`, `master`, etc.).
+3. Prompts for org login URL (for example `https://test.salesforce.com` or your My Domain URL).
+4. Runs `sf org login web` and opens browser login.
+5. Extracts `sfdxAuthUrl` from the authenticated org.
+6. Stores the value into the mapped GitHub secret (for example `SF_AUTH_URL_DEV`) using `gh secret set`.
+
+Notes:
+
+- This browser-based login must be run locally (GitHub-hosted runners cannot do interactive browser redirects).
+- You only need to repeat this when the auth URL is rotated/revoked/expired.
+- CI/CD workflows then use the stored secret automatically on every deployment.
+
 ## Workflows Added
 
 - [Salesforce Feature Manifest](.github/workflows/sf-manifest-feature.yml)
