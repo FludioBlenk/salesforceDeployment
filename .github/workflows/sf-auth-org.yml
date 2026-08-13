@@ -1,0 +1,77 @@
+name: Salesforce Org Auth Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Target mode: sandbox uses environments map; production uses production.sourceBranch"
+        required: true
+        default: sandbox
+        type: choice
+        options:
+          - sandbox
+          - production
+      branch:
+        description: "Branch name to resolve (examples: develop, uat, master)"
+        required: true
+        default: develop
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-target:
+    runs-on: ubuntu-latest
+    outputs:
+      isDeployable: ${{ steps.resolve.outputs.isDeployable }}
+      envName: ${{ steps.resolve.outputs.envName }}
+      authSecret: ${{ steps.resolve.outputs.authSecret }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve target from config
+        id: resolve
+        run: node scripts/ci/resolve-target-env.js "${{ inputs.mode }}" "${{ inputs.branch }}"
+
+  auth-org:
+    needs: resolve-target
+    if: needs.resolve-target.outputs.isDeployable == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Authenticate to Salesforce org
+        shell: bash
+        run: |
+          AUTH_VALUE="${{ secrets[needs.resolve-target.outputs.authSecret] }}"
+          if [ -z "$AUTH_VALUE" ]; then
+            echo "GitHub secret '${{ needs.resolve-target.outputs.authSecret }}' is empty or missing."
+            exit 1
+          fi
+
+          printf '%s' "$AUTH_VALUE" > ./SFDX_AUTH_URL.txt
+          sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias auth-check
+          rm -f ./SFDX_AUTH_URL.txt
+
+      - name: Verify org session
+        run: sf org display --target-org auth-check --verbose
+
+      - name: Cleanup session
+        if: always()
+        run: sf org logout --target-org auth-check --no-prompt
+
+  no-target:
+    needs: resolve-target
+    if: needs.resolve-target.outputs.isDeployable != 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fail when branch is not mapped
+        run: |
+          echo "No deployable environment mapping found for mode='${{ inputs.mode }}' branch='${{ inputs.branch }}'."
+          echo "Update config/branch-environments.json or choose a mapped branch."
+          exit 1

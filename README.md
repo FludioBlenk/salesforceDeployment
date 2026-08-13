@@ -142,6 +142,29 @@ Each value must be an SFDX auth URL for the corresponding org.
 - [Salesforce Production Deployment](.github/workflows/sf-deploy-production-from-master.yml)
 	- Trigger: push/merge to `master`
 	- Behavior: deploy to prod, update production tracking branch; **auto-reverts on failure**
+- [Salesforce Org Auth Check](.github/workflows/sf-auth-org.yml)
+    - Trigger: manual (`workflow_dispatch`)
+    - Behavior: resolves target org from config, authenticates with mapped secret, prints org session details
+
+## Manual Org Authentication Workflow
+
+Use [sf-auth-org.yml](.github/workflows/sf-auth-org.yml) when you want to verify org authentication independently of deployments.
+
+How to run:
+
+1. Open **GitHub → Actions → Salesforce Org Auth Check → Run workflow**.
+2. Choose `mode`:
+    - `sandbox`: resolves from `environments` in `config/branch-environments.json`.
+    - `production`: resolves from `production` in `config/branch-environments.json`.
+3. Enter `branch`:
+    - examples: `develop`, `uat`, `master`
+4. Run workflow.
+
+Expected behavior:
+
+- If mapping exists and secret is configured, authentication succeeds and `sf org display --verbose` is shown in logs.
+- If mapping is missing, workflow fails with a clear message.
+- If secret is missing/empty, workflow fails with a clear message.
 
 ## Auto-Revert on Deployment Failure
 
