@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - '**'
+    branches-ignore:
+      - master
+      - production
 
 # contents:write  — revert-on-failure pushes rollback commits
 # pull-requests:write — create-promotion-pr opens the next-env PR
@@ -129,18 +132,17 @@ jobs:
             exit 0
           fi
 
+          # Write the PR body to a file to avoid YAML/shell quoting issues.
+          cat > /tmp/pr-body.md << 'PREOF'
+          ## Automated Promotion PR
+
+          This PR was opened automatically by GitHub Actions after a successful deployment.
+
+          Review the changes, wait for PR validation to pass, then merge to trigger the next environment deploy.
+          PREOF
+
           gh pr create \
             --base "$TARGET_BRANCH" \
             --head "$SOURCE_BRANCH" \
-            --title "chore: promote $SOURCE_BRANCH → $TARGET_BRANCH after successful $ENV_NAME deploy" \
-            --body "## Automated Promotion PR
-
-This PR was opened automatically by GitHub Actions after a **successful deployment to $ENV_NAME**.
-
-**Source branch:** \`$SOURCE_BRANCH\`
-**Target branch:** \`$TARGET_BRANCH\`
-
-### Before merging
-- Review the changes included in this promotion.
-- PR validation (check-only deploy to the target org) will run automatically.
-- Merge only when validation passes and the changes are approved."
+            --title "chore: promote ${SOURCE_BRANCH} to ${TARGET_BRANCH} after successful ${ENV_NAME} deploy" \
+            --body-file /tmp/pr-body.md
