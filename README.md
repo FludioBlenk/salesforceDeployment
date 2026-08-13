@@ -104,7 +104,7 @@ Production workflow:
 
 ## Configuration
 
-Edit [config/branch-environments.json](config/branch-environments.json).
+Edit [config/branch-environments.json](config/branch-environments.json). No workflow files need to change.
 
 Fields:
 
@@ -113,10 +113,72 @@ Fields:
 	- `name`: label for environment.
 	- `authSecret`: GitHub secret name containing SFDX auth URL.
 	- `testLevel`: Salesforce test level for deploy/validate.
+	- `promotionTarget`: branch that receives the auto-promotion PR after a successful deploy.
 - `production`: production deployment settings.
 	- `sourceBranch`: branch that triggers production deploy (default `master`).
 	- `trackingBranch`: branch updated after successful production deploy (default `production`).
 	- `authSecret`: GitHub secret name for production auth URL.
+
+### Field reference
+
+| Field | Effect |
+|---|---|
+| `environments` key | Which Git branch triggers a deploy to that org |
+| `name` | Display label in logs and PR titles |
+| `authSecret` | Which GitHub secret holds the org's SFDX auth URL |
+| `testLevel` | `RunLocalTests`, `RunAllTestsInOrg`, or `NoTestRun` |
+| `promotionTarget` | Which branch gets the auto-promotion PR after a successful deploy |
+| `production.sourceBranch` | Which branch triggers the production deploy workflow |
+| `production.trackingBranch` | Which branch is updated after a successful production deploy |
+
+## Adding an Environment
+
+1. Add a new key under `environments` in [config/branch-environments.json](config/branch-environments.json). The key **must match the Git branch name exactly**.
+2. Update `promotionTarget` on the environment below it to point to the new branch, and set the new environment's `promotionTarget` to point onward.
+3. Create the branch in Git.
+4. Store the org auth from the GitHub UI — see [One-Time Interactive Org Authentication Setup](#one-time-interactive-org-authentication-setup).
+
+Example — inserting a `staging` environment between `uat` and `master`:
+
+```json
+"uat": {
+  "name": "UAT_SANDBOX",
+  "authSecret": "SF_AUTH_URL_UAT",
+  "testLevel": "RunLocalTests",
+  "promotionTarget": "staging"
+},
+"staging": {
+  "name": "STAGING_SANDBOX",
+  "authSecret": "SF_AUTH_URL_STAGING",
+  "testLevel": "RunLocalTests",
+  "promotionTarget": "master"
+}
+```
+
+## Removing an Environment
+
+1. Delete its entry from `environments`.
+2. Update the `promotionTarget` of the environment above it to skip the removed one.
+3. Delete the Git branch if no longer needed.
+
+Example — removing `uat` from a three-environment chain:
+
+```json
+"develop": {
+  ...
+  "promotionTarget": "master"
+}
+```
+
+## Changing the Promotion Order
+
+Only change `promotionTarget` values. Example — reordering to `develop → staging → uat → master`:
+
+```json
+"develop":  { "promotionTarget": "staging" },
+"staging":  { "promotionTarget": "uat" },
+"uat":      { "promotionTarget": "master" }
+```
 
 ## Required GitHub Secrets
 
