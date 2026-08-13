@@ -2,6 +2,59 @@
 
 This repository is configured for branch-driven Salesforce deployments with GitHub Actions.
 
+## Deployment Pipeline Overview
+
+```mermaid
+flowchart TD
+    DEV_PUSH["Push to\nfeature/**"]
+    MANIFEST["sf-manifest-feature.yml\nGenerate delta manifest\nmanifest/branches/*.xml"]
+    PR_OPEN["Open Pull Request\nfeature → develop / uat / master"]
+    PR_VAL["sf-validate-pr.yml\nCheck-only deploy (dry-run)\nDelta manifest → target org"]
+    PR_FAIL["❌ PR Validation Fails\nBranch blocked — fix and re-push"]
+    PR_PASS["✅ PR Validation Passes\nMerge allowed"]
+    MERGE_DEV["Merge into develop"]
+    DEPLOY_DEV["sf-deploy-sandbox.yml\nDeploy force-app/ → DEV sandbox\nRunLocalTests"]
+    REVERT_DEV["revert-on-failure\nAuto-revert commit pushed\nto develop [skip ci]"]
+    SUCCESS_DEV["✅ DEV deploy success\ndevelop branch = DEV state"]
+
+    MERGE_UAT["Merge into uat\n(new PR: develop → uat)"]
+    DEPLOY_UAT["sf-deploy-sandbox.yml\nDeploy force-app/ → UAT sandbox\nRunLocalTests"]
+    REVERT_UAT["revert-on-failure\nAuto-revert commit pushed\nto uat [skip ci]"]
+    SUCCESS_UAT["✅ UAT deploy success\nuat branch = UAT state"]
+
+    MERGE_PROD["Merge into master\n(new PR: uat → master)"]
+    DEPLOY_PROD["sf-deploy-production-from-master.yml\nDeploy force-app/ → Production\nRunLocalTests"]
+    REVERT_PROD["revert-on-failure\nAuto-revert commit pushed\nto master [skip ci]"]
+    SUCCESS_PROD["✅ Production deploy success\nproduction tracking branch updated"]
+
+    CONFIG["config/branch-environments.json\nAdd/remove envs here — no workflow changes needed"]
+
+    DEV_PUSH --> MANIFEST
+    DEV_PUSH --> PR_OPEN
+    PR_OPEN --> PR_VAL
+    PR_VAL --> PR_FAIL
+    PR_VAL --> PR_PASS
+    PR_PASS --> MERGE_DEV
+
+    MERGE_DEV --> DEPLOY_DEV
+    DEPLOY_DEV -- "failure" --> REVERT_DEV
+    DEPLOY_DEV -- "success" --> SUCCESS_DEV
+
+    SUCCESS_DEV --> MERGE_UAT
+    MERGE_UAT --> DEPLOY_UAT
+    DEPLOY_UAT -- "failure" --> REVERT_UAT
+    DEPLOY_UAT -- "success" --> SUCCESS_UAT
+
+    SUCCESS_UAT --> MERGE_PROD
+    MERGE_PROD --> DEPLOY_PROD
+    DEPLOY_PROD -- "failure" --> REVERT_PROD
+    DEPLOY_PROD -- "success" --> SUCCESS_PROD
+
+    CONFIG -. "drives all env mappings" .-> DEPLOY_DEV
+    CONFIG -. "drives all env mappings" .-> DEPLOY_UAT
+    CONFIG -. "drives all env mappings" .-> DEPLOY_PROD
+```
+
 ## Branching Model
 
 Each sandbox environment has its own branch.
