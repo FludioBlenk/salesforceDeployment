@@ -1,0 +1,85 @@
+name: Store Salesforce Org Auth URL
+
+# Run this from the GitHub Actions UI (Actions tab → Store Salesforce Org Auth URL → Run workflow).
+# Paste the SFDX auth URL for an org and choose which pipeline environment it belongs to.
+# The workflow validates the auth against a live Salesforce org, then writes it into the
+# correct GitHub repository secret so all deploy workflows can use it immediately.
+#
+# How to get the SFDX Auth URL (one time, locally):
+#   sf org login web --alias myorg
+#   sf org display --target-org myorg --verbose
+#   Copy the value next to "Sfdx Auth Url".
+#
+# Prerequisite: create a fine-grained Personal Access Token (PAT) with
+# repository "Secrets: Read and write" permission and store it as the
+# GitHub repository secret GH_SECRETS_PAT.
+# The default GITHUB_TOKEN cannot write secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Pipeline environment branch (e.g. develop, uat, master)"
+        required: true
+        type: string
+        default: develop
+      sfdx_auth_url:
+        description: "SFDX Auth URL for the org (starts with force://)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-store:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Resolve secret name from config
+        id: resolve
+        shell: bash
+        run: |
+          ENVIRONMENT="${{ inputs.environment }}"
+
+          SECRET=$(node -e "
+            const c = require('./config/branch-environments.json');
+            const env = c.environments && c.environments['$ENVIRONMENT'];
+            if (env && env.authSecret) { process.stdout.write(env.authSecret); process.exit(0); }
+            const prod = c.production || {};
+            if (prod.sourceBranch === '$ENVIRONMENT' && prod.authSecret) {
+              process.stdout.write(prod.authSecret); process.exit(0);
+            }
+            process.stderr.write('No mapping found for environment: $ENVIRONMENT\n');
+            process.exit(1);
+          ")
+
+          echo "secretName=$SECRET" >> "$GITHUB_OUTPUT"
+          echo "Resolved secret name: $SECRET"
+
+      - name: Validate SFDX Auth URL against live org
+        shell: bash
+        run: |
+          printf '%s' "${{ inputs.sfdx_auth_url }}" > ./AUTH_URL.txt
+          sf org login sfdx-url --sfdx-url-file ./AUTH_URL.txt --alias validation-target
+          rm -f ./AUTH_URL.txt
+          echo "Auth validated successfully. Org details:"
+          sf org display --target-org validation-target
+          sf org logout --target-org validation-target --no-prompt
+
+      - name: Store auth URL as GitHub repository secret
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_PAT }}
+        shell: bash
+        run: |
+          printf '%s' "${{ inputs.sfdx_auth_url }}" \
+            | gh secret set "${{ steps.resolve.outputs.secretName }}" --repo "${{ github.repository }}"
+
+          echo "Secret '${{ steps.resolve.outputs.secretName }}' stored."
+          echo "Environment '${{ inputs.environment }}' is now authenticated for CI/CD."
