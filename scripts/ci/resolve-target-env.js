@@ -45,12 +45,6 @@ function ensureUniformAuthType(config) {
       `All environments must use the same authType. Found mixed values: ${details}`
     );
   }
-
-  if (distinctTypes[0] !== 'jwt') {
-    throw new Error(
-      `GitHub-only mode requires authType=jwt for all environments. Found: ${distinctTypes[0]}`
-    );
-  }
 }
 
 function outputAuthSettings(scope, fallbackAuthSecret) {

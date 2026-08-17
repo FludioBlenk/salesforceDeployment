@@ -1,0 +1,203 @@
+name: Salesforce Interactive Org Auth
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Environment branch to authenticate (e.g. develop, uat, master)"
+        required: true
+        default: develop
+        type: string
+      instanceUrl:
+        description: "Salesforce login URL to use (e.g. https://test.salesforce.com or My Domain URL)"
+        required: true
+        default: https://test.salesforce.com
+        type: string
+      pollTimeoutMinutes:
+        description: "How long to wait for browser auth completion"
+        required: true
+        default: "15"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  interactive-auth:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve target branch mapping
+        id: resolve
+        shell: bash
+        run: |
+          TARGET_BRANCH="${{ inputs.branch }}"
+
+          RESOLVE_JSON=$(node -e "
+            const c = require('./config/branch-environments.json');
+            const b = process.env.TARGET_BRANCH;
+            const env = c.environments && c.environments[b];
+            if (env) {
+              process.stdout.write(JSON.stringify({
+                mode: 'sandbox',
+                branch: b,
+                authType: env.authType || 'sfdx-url',
+                authSecret: env.authSecret || ''
+              }));
+              process.exit(0);
+            }
+
+            const p = c.production || {};
+            if ((p.sourceBranch || 'master') === b) {
+              process.stdout.write(JSON.stringify({
+                mode: 'production',
+                branch: b,
+                authType: p.authType || 'sfdx-url',
+                authSecret: p.authSecret || 'SF_AUTH_URL_PROD'
+              }));
+              process.exit(0);
+            }
+
+            process.stderr.write('No environment mapping found for branch: ' + b + '\n');
+            process.exit(1);
+          ")
+
+          MODE=$(echo "$RESOLVE_JSON" | jq -r '.mode')
+          AUTH_TYPE=$(echo "$RESOLVE_JSON" | jq -r '.authType')
+          AUTH_SECRET=$(echo "$RESOLVE_JSON" | jq -r '.authSecret')
+
+          if [ "$AUTH_TYPE" != "sfdx-url" ]; then
+            echo "Interactive browser auth requires authType=sfdx-url. Current authType for branch '$TARGET_BRANCH' is '$AUTH_TYPE'."
+            exit 1
+          fi
+
+          if [ -z "$AUTH_SECRET" ]; then
+            echo "No authSecret configured for branch '$TARGET_BRANCH'."
+            exit 1
+          fi
+
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "authSecret=$AUTH_SECRET" >> "$GITHUB_OUTPUT"
+          echo "Resolved branch '$TARGET_BRANCH' to mode '$MODE' and secret '$AUTH_SECRET'."
+
+      - name: Start interactive auth session with broker
+        id: start
+        env:
+          BROKER_BASE_URL: ${{ secrets.SF_AUTH_BROKER_BASE_URL }}
+          BROKER_API_TOKEN: ${{ secrets.SF_AUTH_BROKER_API_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$BROKER_BASE_URL" ] || [ -z "$BROKER_API_TOKEN" ]; then
+            echo "Missing required broker secrets: SF_AUTH_BROKER_BASE_URL and/or SF_AUTH_BROKER_API_TOKEN"
+            exit 1
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg branch "${{ inputs.branch }}" \
+            --arg instanceUrl "${{ inputs.instanceUrl }}" \
+            --arg runUrl "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{repository:$repo, environmentBranch:$branch, instanceUrl:$instanceUrl, callbackRunUrl:$runUrl}')
+
+          RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer $BROKER_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$BROKER_BASE_URL/api/v1/salesforce/auth/sessions")
+
+          SESSION_ID=$(echo "$RESPONSE" | jq -r '.sessionId // empty')
+          AUTH_URL=$(echo "$RESPONSE" | jq -r '.authorizeUrl // empty')
+
+          if [ -z "$SESSION_ID" ] || [ -z "$AUTH_URL" ]; then
+            echo "Broker response was missing sessionId or authorizeUrl"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          {
+            echo "## Salesforce Interactive Auth"
+            echo ""
+            echo "Environment branch: **${{ inputs.branch }}**"
+            echo "Target secret: **${{ steps.resolve.outputs.authSecret }}**"
+            echo ""
+            echo "1. Open this link in your browser and sign in:"
+            echo "   - $AUTH_URL"
+            echo "2. Complete the Salesforce login/consent flow."
+            echo "3. Return to this workflow run and wait for completion."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "sessionId=$SESSION_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for interactive auth completion
+        id: wait
+        env:
+          BROKER_BASE_URL: ${{ secrets.SF_AUTH_BROKER_BASE_URL }}
+          BROKER_API_TOKEN: ${{ secrets.SF_AUTH_BROKER_API_TOKEN }}
+          SESSION_ID: ${{ steps.start.outputs.sessionId }}
+        shell: bash
+        run: |
+          TIMEOUT_MINUTES=${{ inputs.pollTimeoutMinutes }}
+          MAX_ATTEMPTS=$((TIMEOUT_MINUTES * 6))
+
+          for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+            RESPONSE=$(curl -sS \
+              -H "Authorization: Bearer $BROKER_API_TOKEN" \
+              "$BROKER_BASE_URL/api/v1/salesforce/auth/sessions/$SESSION_ID")
+
+            STATUS=$(echo "$RESPONSE" | jq -r '.status // "unknown"')
+            if [ "$STATUS" = "completed" ]; then
+              AUTH_URL=$(echo "$RESPONSE" | jq -r '.sfdxAuthUrl // empty')
+              if [ -z "$AUTH_URL" ]; then
+                echo "Broker marked session completed but did not provide sfdxAuthUrl"
+                echo "$RESPONSE"
+                exit 1
+              fi
+              echo "sfdxAuthUrl=$AUTH_URL" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [ "$STATUS" = "failed" ] || [ "$STATUS" = "expired" ] || [ "$STATUS" = "cancelled" ]; then
+              echo "Interactive auth session ended with status: $STATUS"
+              echo "$RESPONSE"
+              exit 1
+            fi
+
+            echo "Waiting for auth completion... attempt $i/$MAX_ATTEMPTS (status=$STATUS)"
+            sleep 10
+          done
+
+          echo "Timed out waiting for interactive auth completion"
+          exit 1
+
+      - name: Validate and store SFDX auth URL secret
+        env:
+          GH_TOKEN: ${{ secrets.GH_SECRETS_PAT }}
+          SECRET_NAME: ${{ steps.resolve.outputs.authSecret }}
+          SFDX_AUTH_URL: ${{ steps.wait.outputs.sfdxAuthUrl }}
+        shell: bash
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Missing GH_SECRETS_PAT secret required to write repository secrets"
+            exit 1
+          fi
+
+          if [[ "$SFDX_AUTH_URL" != force://* ]]; then
+            echo "Broker returned invalid SFDX auth URL format. Expected value starting with force://"
+            exit 1
+          fi
+
+          printf '%s' "$SFDX_AUTH_URL" | gh secret set "$SECRET_NAME" --repo "${{ github.repository }}"
+          echo "Stored auth URL in secret '$SECRET_NAME'."
+
+      - name: Verify org login with stored secret
+        shell: bash
+        run: |
+          npm install -g @salesforce/cli
+          printf '%s' "${{ steps.wait.outputs.sfdxAuthUrl }}" > ./SFDX_AUTH_URL.txt
+          sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias post-auth-check
+          rm -f ./SFDX_AUTH_URL.txt
+          sf org display --target-org post-auth-check --verbose
+          sf org logout --target-org post-auth-check --no-prompt
