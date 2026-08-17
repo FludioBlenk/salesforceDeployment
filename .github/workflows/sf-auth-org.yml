@@ -45,6 +45,7 @@ jobs:
         run: npm install -g @salesforce/cli
 
       - name: Authenticate to Salesforce org
+        id: auth
         shell: bash
         run: |
           AUTH_VALUE="${{ secrets[needs.resolve-target.outputs.authSecret] }}"
@@ -61,7 +62,7 @@ jobs:
         run: sf org display --target-org auth-check --verbose
 
       - name: Cleanup session
-        if: always()
+        if: always() && steps.auth.outcome == 'success'
         run: sf org logout --target-org auth-check --no-prompt
 
   no-target:
