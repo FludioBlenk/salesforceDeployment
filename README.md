@@ -231,6 +231,42 @@ Required repository secrets for broker integration:
 
 This gives browser-based auth managed from GitHub without local CLI commands for admins.
 
+### Auth Broker Service Setup
+
+This repository includes a minimal broker implementation in `auth-broker/`.
+
+Files:
+
+- `auth-broker/src/server.js`
+- `auth-broker/.env.example`
+- `auth-broker/Dockerfile`
+
+Broker API endpoints expected by the workflow:
+
+- `POST /api/v1/salesforce/auth/sessions`
+- `GET /api/v1/salesforce/auth/sessions/{sessionId}`
+- `GET /oauth/callback`
+
+How to run broker locally:
+
+1. `cd auth-broker`
+2. `npm install`
+3. Copy `.env.example` to `.env` and fill values.
+4. Start service: `npm start`
+
+Required broker environment variables:
+
+- `BROKER_API_TOKEN`: token used by GitHub workflow when calling broker.
+- `BROKER_SF_CLIENT_ID`: Connected App consumer key.
+- `BROKER_SF_CLIENT_SECRET`: Connected App consumer secret.
+- `BROKER_SF_REDIRECT_URI`: callback URL hosted by broker, for example `https://broker.example.com/oauth/callback`.
+- `SESSION_TTL_MINUTES`: optional, default `20`.
+
+Important:
+
+- Connected App callback URL in Salesforce must exactly match `BROKER_SF_REDIRECT_URI`.
+- Broker stores sessions in memory in this starter implementation; for production use persistent storage and encryption-at-rest for session artifacts.
+
 ## Workflows Added
 
 - [Salesforce Feature Manifest](.github/workflows/sf-manifest-feature.yml)

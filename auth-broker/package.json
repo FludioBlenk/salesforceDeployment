@@ -1,0 +1,16 @@
+{
+  "name": "salesforce-auth-broker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Interactive Salesforce OAuth broker for GitHub Actions",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
