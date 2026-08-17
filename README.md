@@ -109,16 +109,15 @@ Edit [config/branch-environments.json](config/branch-environments.json). No work
 Authentication policy:
 
 - All environments must use the same `authType`.
-- Mixing `sfdx-url` and `jwt` in the same config is blocked by the pipeline.
-- For interactive browser login from GitHub UI, use `authType: sfdx-url` for all environments.
+- This repository is standardized on `authType: jwt` for all environments.
+- Authentication is fully GitHub-native: only GitHub Actions + GitHub Secrets are required.
 
 Fields:
 
 - `defaultFeatureBaseBranch`: branch used to compute feature branch manifest delta.
 - `environments`: map of branch name to sandbox deployment target.
   - `name`: label for environment.
-  - `authType`: `sfdx-url` or `jwt`.
-  - `authSecret`: GitHub secret name containing SFDX auth URL (used for `sfdx-url`).
+  - `authType`: must be `jwt`.
   - `jwtClientIdSecret`: GitHub secret name containing Connected App consumer key (used for `jwt`).
   - `jwtUsernameSecret`: GitHub secret name containing Salesforce username (used for `jwt`).
   - `jwtPrivateKeySecret`: GitHub secret name containing RSA private key PEM (used for `jwt`).
@@ -128,7 +127,7 @@ Fields:
 - `production`: production deployment settings.
 	- `sourceBranch`: branch that triggers production deploy (default `master`).
 	- `trackingBranch`: branch updated after successful production deploy (default `production`).
-  - same auth fields as sandbox environments (`authType`, `authSecret`, `jwt*`, `jwtLoginUrl`).
+  - same auth fields as sandbox environments (`authType`, `jwt*`, `jwtLoginUrl`).
 
 ### Field reference
 
@@ -136,8 +135,7 @@ Fields:
 |---|---|
 | `environments` key | Which Git branch triggers a deploy to that org |
 | `name` | Display label in logs and PR titles |
-| `authType` | `sfdx-url` or `jwt` (must be consistent across all environments) |
-| `authSecret` | Secret name for SFDX auth URL (used for `sfdx-url`) |
+| `authType` | Must be `jwt` for all environments |
 | `jwtClientIdSecret` | Secret name for Connected App consumer key |
 | `jwtUsernameSecret` | Secret name for Salesforce username |
 | `jwtPrivateKeySecret` | Secret name for RSA private key PEM |
@@ -152,22 +150,28 @@ Fields:
 1. Add a new key under `environments` in [config/branch-environments.json](config/branch-environments.json). The key **must match the Git branch name exactly**.
 2. Update `promotionTarget` on the environment below it to point to the new branch, and set the new environment's `promotionTarget` to point onward.
 3. Create the branch in Git.
-4. Store the org auth from the GitHub UI — see [Interactive Browser Authentication From GitHub](#interactive-browser-authentication-from-github).
+4. Add environment JWT secrets in GitHub UI (Repository Settings → Secrets and variables → Actions).
 
 Example — inserting a `staging` environment between `uat` and `master`:
 
 ```json
 "uat": {
   "name": "UAT_SANDBOX",
-  "authType": "sfdx-url",
-  "authSecret": "SF_AUTH_URL_UAT",
+  "authType": "jwt",
+  "jwtClientIdSecret": "UAT_JWT_CLIENT_ID",
+  "jwtUsernameSecret": "UAT_JWT_USERNAME",
+  "jwtPrivateKeySecret": "UAT_JWT_PRIVATE_KEY",
+  "jwtLoginUrl": "https://test.salesforce.com",
   "testLevel": "RunLocalTests",
   "promotionTarget": "staging"
 },
 "staging": {
   "name": "STAGING_SANDBOX",
-  "authType": "sfdx-url",
-  "authSecret": "SF_AUTH_URL_STAGING",
+  "authType": "jwt",
+  "jwtClientIdSecret": "STAGING_JWT_CLIENT_ID",
+  "jwtUsernameSecret": "STAGING_JWT_USERNAME",
+  "jwtPrivateKeySecret": "STAGING_JWT_PRIVATE_KEY",
+  "jwtLoginUrl": "https://test.salesforce.com",
   "testLevel": "RunLocalTests",
   "promotionTarget": "master"
 }
@@ -202,70 +206,23 @@ Only change `promotionTarget` values. Example — reordering to `develop → sta
 
 Create these repository secrets (or rename in config):
 
-- For `sfdx-url` mode:
-  - `SF_AUTH_URL_DEV`
-  - `SF_AUTH_URL_UAT`
-  - `SF_AUTH_URL_PROD`
-- For `jwt` mode:
-  - `<ENV>_JWT_CLIENT_ID`
-  - `<ENV>_JWT_USERNAME`
-  - `<ENV>_JWT_PRIVATE_KEY`
+- `<ENV>_JWT_CLIENT_ID`
+- `<ENV>_JWT_USERNAME`
+- `<ENV>_JWT_PRIVATE_KEY`
 
-## Interactive Browser Authentication From GitHub
+Example for current branches:
 
-Use [sf-auth-interactive-broker.yml](.github/workflows/sf-auth-interactive-broker.yml) when you want Salesforce CLI style browser login initiated from GitHub UI.
+- `DEV_JWT_CLIENT_ID`, `DEV_JWT_USERNAME`, `DEV_JWT_PRIVATE_KEY`
+- `UAT_JWT_CLIENT_ID`, `UAT_JWT_USERNAME`, `UAT_JWT_PRIVATE_KEY`
+- `PROD_JWT_CLIENT_ID`, `PROD_JWT_USERNAME`, `PROD_JWT_PRIVATE_KEY`
 
-How it works:
+## GitHub-Only Authentication Setup
 
-1. Admin runs workflow from Actions tab and enters branch + instance URL.
-2. Workflow calls your auth broker and prints an `authorizeUrl` in the run summary.
-3. Admin opens link, logs in with Salesforce user, completes consent.
-4. Workflow polls broker until complete, receives `sfdxAuthUrl`, and stores it in the mapped GitHub secret.
-5. Workflow verifies login immediately.
+1. Add JWT secrets under Repository Settings → Secrets and variables → Actions.
+2. Keep `authType: jwt` for all environments in `config/branch-environments.json`.
+3. Run [sf-auth-org.yml](.github/workflows/sf-auth-org.yml) from Actions to verify each branch mapping.
 
-Required repository secrets for broker integration:
-
-- `SF_AUTH_BROKER_BASE_URL`
-- `SF_AUTH_BROKER_API_TOKEN`
-- `GH_SECRETS_PAT` (repo secrets write permission)
-
-This gives browser-based auth managed from GitHub without local CLI commands for admins.
-
-### Auth Broker Service Setup
-
-This repository includes a minimal broker implementation in `auth-broker/`.
-
-Files:
-
-- `auth-broker/src/server.js`
-- `auth-broker/.env.example`
-- `auth-broker/Dockerfile`
-
-Broker API endpoints expected by the workflow:
-
-- `POST /api/v1/salesforce/auth/sessions`
-- `GET /api/v1/salesforce/auth/sessions/{sessionId}`
-- `GET /oauth/callback`
-
-How to run broker locally:
-
-1. `cd auth-broker`
-2. `npm install`
-3. Copy `.env.example` to `.env` and fill values.
-4. Start service: `npm start`
-
-Required broker environment variables:
-
-- `BROKER_API_TOKEN`: token used by GitHub workflow when calling broker.
-- `BROKER_SF_CLIENT_ID`: Connected App consumer key.
-- `BROKER_SF_CLIENT_SECRET`: Connected App consumer secret.
-- `BROKER_SF_REDIRECT_URI`: callback URL hosted by broker, for example `https://broker.example.com/oauth/callback`.
-- `SESSION_TTL_MINUTES`: optional, default `20`.
-
-Important:
-
-- Connected App callback URL in Salesforce must exactly match `BROKER_SF_REDIRECT_URI`.
-- Broker stores sessions in memory in this starter implementation; for production use persistent storage and encryption-at-rest for session artifacts.
+No side hosts are required in this model.
 
 ## Workflows Added
 
@@ -284,9 +241,6 @@ Important:
 - [Salesforce Org Auth Check](.github/workflows/sf-auth-org.yml)
     - Trigger: manual (`workflow_dispatch`)
     - Behavior: resolves target org from config, authenticates with mapped secret, prints org session details
-- [Salesforce Interactive Org Auth](.github/workflows/sf-auth-interactive-broker.yml)
-  - Trigger: manual (`workflow_dispatch`)
-  - Behavior: starts browser login via auth broker, stores resulting SFDX auth URL in mapped GitHub secret
 
 ## Manual Org Authentication Workflow
 
