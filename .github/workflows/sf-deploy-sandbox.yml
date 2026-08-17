@@ -68,7 +68,7 @@ jobs:
               exit 1
             fi
 
-            printf '%s' "$JWT_PRIVATE_KEY" | sed 's/\\n/\n/g' > ./jwt.key
+            echo "$JWT_PRIVATE_KEY" | base64 -d > ./jwt.key
             sf org login jwt \
               --client-id "$JWT_CLIENT_ID" \
               --jwt-key-file ./jwt.key \

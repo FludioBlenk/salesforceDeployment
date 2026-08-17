@@ -66,12 +66,8 @@ jobs:
               exit 1
             fi
 
-            # Restore newlines that GitHub secrets storage may have collapsed.
-            printf '%s' "$JWT_PRIVATE_KEY" | sed 's/\\n/\n/g' > ./jwt.key
-            # If the key is still one line (no real newlines), treat whole string as PEM already.
-            if ! grep -q 'BEGIN' ./jwt.key 2>/dev/null; then
-              printf '%s' "$JWT_PRIVATE_KEY" > ./jwt.key
-            fi
+            # Decode base64-encoded private key stored in the GitHub secret.
+            echo "$JWT_PRIVATE_KEY" | base64 -d > ./jwt.key
             sf org login jwt \
               --client-id "$JWT_CLIENT_ID" \
               --jwt-key-file ./jwt.key \
