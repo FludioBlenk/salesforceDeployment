@@ -54,6 +54,14 @@ jobs:
             exit 1
           fi
 
+          # Normalize and validate secret format early for clearer errors.
+          AUTH_VALUE="$(printf '%s' "$AUTH_VALUE" | tr -d '\r')"
+          if [[ "$AUTH_VALUE" != force://* ]]; then
+            echo "Invalid auth URL format in secret '${{ needs.resolve-target.outputs.authSecret }}'."
+            echo "Expected full SFDX auth URL starting with force:// (from 'sf org display --verbose')."
+            exit 1
+          fi
+
           printf '%s' "$AUTH_VALUE" > ./SFDX_AUTH_URL.txt
           sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias auth-check
           rm -f ./SFDX_AUTH_URL.txt
