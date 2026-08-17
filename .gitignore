@@ -18,6 +18,12 @@ coverage/
 logs
 *.log
 npm-debug.log*
+
+# JWT keypair — never commit private keys
+server.key
+server.crt
+server.pfx
+*.pem
 yarn-debug.log*
 yarn-error.log*
 
