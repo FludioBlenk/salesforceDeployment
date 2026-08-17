@@ -3,15 +3,21 @@
   "environments": {
     "develop": {
       "name": "DEV_SANDBOX",
-      "authType": "sfdx-url",
-      "authSecret": "SF_AUTH_URL_DEV",
+      "authType": "jwt",
+      "jwtClientIdSecret": "DEV_JWT_CLIENT_ID",
+      "jwtUsernameSecret": "DEV_JWT_USERNAME",
+      "jwtPrivateKeySecret": "DEV_JWT_PRIVATE_KEY",
+      "jwtLoginUrl": "https://test.salesforce.com",
       "testLevel": "RunLocalTests",
       "promotionTarget": "uat"
     },
     "uat": {
       "name": "UAT_SANDBOX",
-      "authType": "sfdx-url",
-      "authSecret": "SF_AUTH_URL_UAT",
+      "authType": "jwt",
+      "jwtClientIdSecret": "UAT_JWT_CLIENT_ID",
+      "jwtUsernameSecret": "UAT_JWT_USERNAME",
+      "jwtPrivateKeySecret": "UAT_JWT_PRIVATE_KEY",
+      "jwtLoginUrl": "https://test.salesforce.com",
       "testLevel": "RunLocalTests",
       "promotionTarget": "master"
     }
@@ -20,8 +26,11 @@
     "sourceBranch": "master",
     "trackingBranch": "production",
     "name": "PRODUCTION",
-    "authType": "sfdx-url",
-    "authSecret": "SF_AUTH_URL_PROD",
+    "authType": "jwt",
+    "jwtClientIdSecret": "PROD_JWT_CLIENT_ID",
+    "jwtUsernameSecret": "PROD_JWT_USERNAME",
+    "jwtPrivateKeySecret": "PROD_JWT_PRIVATE_KEY",
+    "jwtLoginUrl": "https://login.salesforce.com",
     "testLevel": "RunLocalTests"
   }
 }

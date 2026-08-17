@@ -26,7 +26,6 @@ jobs:
     outputs:
       isDeployable: ${{ steps.resolve.outputs.isDeployable }}
       envName: ${{ steps.resolve.outputs.envName }}
-      authSecret: ${{ steps.resolve.outputs.authSecret }}
       authType: ${{ steps.resolve.outputs.authType }}
       jwtClientIdSecret: ${{ steps.resolve.outputs.jwtClientIdSecret }}
       jwtUsernameSecret: ${{ steps.resolve.outputs.jwtUsernameSecret }}
@@ -53,45 +52,30 @@ jobs:
         id: auth
         env:
           AUTH_TYPE: ${{ needs.resolve-target.outputs.authType }}
-          AUTH_VALUE: ${{ secrets[needs.resolve-target.outputs.authSecret] }}
           JWT_CLIENT_ID: ${{ secrets[needs.resolve-target.outputs.jwtClientIdSecret] }}
           JWT_USERNAME: ${{ secrets[needs.resolve-target.outputs.jwtUsernameSecret] }}
           JWT_PRIVATE_KEY: ${{ secrets[needs.resolve-target.outputs.jwtPrivateKeySecret] }}
           JWT_LOGIN_URL: ${{ needs.resolve-target.outputs.jwtLoginUrl }}
         shell: bash
         run: |
-          if [ "$AUTH_TYPE" = "jwt" ]; then
-            if [ -z "$JWT_CLIENT_ID" ] || [ -z "$JWT_USERNAME" ] || [ -z "$JWT_PRIVATE_KEY" ]; then
-              echo "JWT auth is configured but one or more JWT secrets are missing."
-              exit 1
-            fi
-
-            printf '%s' "$JWT_PRIVATE_KEY" > ./jwt.key
-            sf org login jwt \
-              --client-id "$JWT_CLIENT_ID" \
-              --jwt-key-file ./jwt.key \
-              --username "$JWT_USERNAME" \
-              --instance-url "$JWT_LOGIN_URL" \
-              --alias auth-check
-            rm -f ./jwt.key
-            exit 0
-          fi
-
-          if [ -z "$AUTH_VALUE" ]; then
-            echo "GitHub secret '${{ needs.resolve-target.outputs.authSecret }}' is empty or missing."
+          if [ "$AUTH_TYPE" != "jwt" ]; then
+            echo "GitHub-only auth requires authType=jwt."
             exit 1
           fi
 
-          AUTH_VALUE="$(printf '%s' "$AUTH_VALUE" | tr -d '\r')"
-          if [[ "$AUTH_VALUE" != force://* ]]; then
-            echo "Invalid auth URL format in secret '${{ needs.resolve-target.outputs.authSecret }}'."
-            echo "Expected full SFDX auth URL starting with force:// (from 'sf org display --verbose')."
+          if [ -z "$JWT_CLIENT_ID" ] || [ -z "$JWT_USERNAME" ] || [ -z "$JWT_PRIVATE_KEY" ]; then
+            echo "JWT auth is configured but one or more JWT secrets are missing."
             exit 1
           fi
 
-          printf '%s' "$AUTH_VALUE" > ./SFDX_AUTH_URL.txt
-          sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias auth-check
-          rm -f ./SFDX_AUTH_URL.txt
+          printf '%s' "$JWT_PRIVATE_KEY" > ./jwt.key
+          sf org login jwt \
+            --client-id "$JWT_CLIENT_ID" \
+            --jwt-key-file ./jwt.key \
+            --username "$JWT_USERNAME" \
+            --instance-url "$JWT_LOGIN_URL" \
+            --alias auth-check
+          rm -f ./jwt.key
 
       - name: Verify org session
         run: sf org display --target-org auth-check --verbose

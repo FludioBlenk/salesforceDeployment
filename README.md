@@ -108,17 +108,16 @@ Edit [config/branch-environments.json](config/branch-environments.json). No work
 
 Authentication policy:
 
-- All environments must use the same `authType`.
-- Mixing `sfdx-url` and `jwt` in the same config is blocked by the pipeline.
-- To switch auth model, update every environment (`environments.*` and `production`) together.
+- All environments must use `authType: jwt`.
+- Any non-`jwt` authType is blocked by the pipeline.
+- Authentication is configured only through GitHub Secrets and consumed only by GitHub Actions.
 
 Fields:
 
 - `defaultFeatureBaseBranch`: branch used to compute feature branch manifest delta.
 - `environments`: map of branch name to sandbox deployment target.
   - `name`: label for environment.
-  - `authType`: `sfdx-url` (default) or `jwt`.
-  - `authSecret`: GitHub secret name containing SFDX auth URL (used for `sfdx-url`).
+  - `authType`: must be `jwt`.
   - `jwtClientIdSecret`: GitHub secret name containing Connected App consumer key (used for `jwt`).
   - `jwtUsernameSecret`: GitHub secret name containing Salesforce username (used for `jwt`).
   - `jwtPrivateKeySecret`: GitHub secret name containing RSA private key PEM (used for `jwt`).
@@ -128,7 +127,7 @@ Fields:
 - `production`: production deployment settings.
 	- `sourceBranch`: branch that triggers production deploy (default `master`).
 	- `trackingBranch`: branch updated after successful production deploy (default `production`).
-  - same auth fields as sandbox environments (`authType`, `authSecret`, `jwt*`, `jwtLoginUrl`).
+  - same auth fields as sandbox environments (`authType`, `jwt*`, `jwtLoginUrl`).
 
 ### Field reference
 
@@ -136,8 +135,7 @@ Fields:
 |---|---|
 | `environments` key | Which Git branch triggers a deploy to that org |
 | `name` | Display label in logs and PR titles |
-| `authType` | `sfdx-url` or `jwt` |
-| `authSecret` | Which GitHub secret holds the org's SFDX auth URL |
+| `authType` | Must be `jwt` |
 | `jwtClientIdSecret` | Secret name for Connected App consumer key |
 | `jwtUsernameSecret` | Secret name for Salesforce username |
 | `jwtPrivateKeySecret` | Secret name for RSA private key PEM |
@@ -159,13 +157,21 @@ Example — inserting a `staging` environment between `uat` and `master`:
 ```json
 "uat": {
   "name": "UAT_SANDBOX",
-  "authSecret": "SF_AUTH_URL_UAT",
+  "authType": "jwt",
+  "jwtClientIdSecret": "UAT_JWT_CLIENT_ID",
+  "jwtUsernameSecret": "UAT_JWT_USERNAME",
+  "jwtPrivateKeySecret": "UAT_JWT_PRIVATE_KEY",
+  "jwtLoginUrl": "https://test.salesforce.com",
   "testLevel": "RunLocalTests",
   "promotionTarget": "staging"
 },
 "staging": {
   "name": "STAGING_SANDBOX",
-  "authSecret": "SF_AUTH_URL_STAGING",
+  "authType": "jwt",
+  "jwtClientIdSecret": "STAGING_JWT_CLIENT_ID",
+  "jwtUsernameSecret": "STAGING_JWT_USERNAME",
+  "jwtPrivateKeySecret": "STAGING_JWT_PRIVATE_KEY",
+  "jwtLoginUrl": "https://test.salesforce.com",
   "testLevel": "RunLocalTests",
   "promotionTarget": "master"
 }
@@ -200,19 +206,17 @@ Only change `promotionTarget` values. Example — reordering to `develop → sta
 
 Create these repository secrets (or rename in config):
 
-- `SF_AUTH_URL_DEV`
-- `SF_AUTH_URL_UAT`
-- `SF_AUTH_URL_PROD`
-
-Each value must be an SFDX auth URL for the corresponding org.
-
-For GitHub-only authentication (no local browser login dependency), use JWT auth and store these instead:
-
 - `<ENV>_JWT_CLIENT_ID` (Connected App consumer key)
 - `<ENV>_JWT_USERNAME` (Salesforce username)
 - `<ENV>_JWT_PRIVATE_KEY` (full PEM private key)
 
-Then set `authType` to `jwt` and map the corresponding `jwt*Secret` names in `config/branch-environments.json`.
+Example for current branches:
+
+- `DEV_JWT_CLIENT_ID`, `DEV_JWT_USERNAME`, `DEV_JWT_PRIVATE_KEY`
+- `UAT_JWT_CLIENT_ID`, `UAT_JWT_USERNAME`, `UAT_JWT_PRIVATE_KEY`
+- `PROD_JWT_CLIENT_ID`, `PROD_JWT_USERNAME`, `PROD_JWT_PRIVATE_KEY`
+
+Then map the corresponding `jwt*Secret` names in `config/branch-environments.json`.
 
 ## GitHub-Only Authentication (JWT)
 
@@ -235,26 +239,15 @@ Example environment config:
 
 Once these secrets are populated in GitHub, all workflows authenticate from Actions only.
 
-## One-Time Interactive Org Authentication Setup
+## GitHub-Only Authentication Setup
 
-If you want to type an org login URL, sign in as yourself in the browser, and assign that auth to a specific pipeline environment, use:
+Admins can configure authentication entirely in GitHub UI:
 
-`npm run auth:bootstrap`
+1. Add JWT secrets under **Repository Settings → Secrets and variables → Actions**.
+2. Keep `authType: jwt` for all environments in `config/branch-environments.json`.
+3. Run [sf-auth-org.yml](.github/workflows/sf-auth-org.yml) from the Actions tab to verify each branch mapping.
 
-What it does:
-
-1. Reads targets from `config/branch-environments.json`.
-2. Prompts you to pick the environment branch (`develop`, `uat`, `master`, etc.).
-3. Prompts for org login URL (for example `https://test.salesforce.com` or your My Domain URL).
-4. Runs `sf org login web` and opens browser login.
-5. Extracts `sfdxAuthUrl` from the authenticated org.
-6. Stores the value into the mapped GitHub secret (for example `SF_AUTH_URL_DEV`) using `gh secret set`.
-
-Notes:
-
-- This browser-based login must be run locally (GitHub-hosted runners cannot do interactive browser redirects).
-- You only need to repeat this when the auth URL is rotated/revoked/expired.
-- CI/CD workflows then use the stored secret automatically on every deployment.
+No local CLI login is required by this pipeline model.
 
 ## Workflows Added
 

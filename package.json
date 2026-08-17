@@ -14,7 +14,6 @@
     "prettier:verify": "prettier --check \"**/*.{cls,cmp,component,css,html,js,json,md,page,trigger,xml,yaml,yml}\"",
     "manifest:branch": "node scripts/ci/generate-branch-manifest.js",
     "ci:resolve-target": "node scripts/ci/resolve-target-env.js",
-    "auth:bootstrap": "node scripts/ci/bootstrap-org-auth.js",
     "prepare": "husky || true",
     "precommit": "lint-staged"
   },
