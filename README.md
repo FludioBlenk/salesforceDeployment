@@ -106,6 +106,12 @@ Production workflow:
 
 Edit [config/branch-environments.json](config/branch-environments.json). No workflow files need to change.
 
+Authentication policy:
+
+- All environments must use the same `authType`.
+- Mixing `sfdx-url` and `jwt` in the same config is blocked by the pipeline.
+- To switch auth model, update every environment (`environments.*` and `production`) together.
+
 Fields:
 
 - `defaultFeatureBaseBranch`: branch used to compute feature branch manifest delta.

@@ -21,6 +21,32 @@ function normalizeBranch(rawBranch) {
   return (rawBranch || '').replace(/^refs\/heads\//, '');
 }
 
+function authTypeForScope(scope) {
+  if (!scope) {
+    return 'sfdx-url';
+  }
+  return scope.authType || (scope.jwtClientIdSecret ? 'jwt' : 'sfdx-url');
+}
+
+function ensureUniformAuthType(config) {
+  const envs = config.environments || {};
+  const prod = config.production || {};
+
+  const entries = [];
+  for (const [branch, env] of Object.entries(envs)) {
+    entries.push({ key: `environments.${branch}`, authType: authTypeForScope(env) });
+  }
+  entries.push({ key: 'production', authType: authTypeForScope(prod) });
+
+  const distinctTypes = Array.from(new Set(entries.map((e) => e.authType)));
+  if (distinctTypes.length > 1) {
+    const details = entries.map((e) => `${e.key}=${e.authType}`).join(', ');
+    throw new Error(
+      `All environments must use the same authType. Found mixed values: ${details}`
+    );
+  }
+}
+
 function outputAuthSettings(scope, fallbackAuthSecret) {
   const authType = scope.authType || (scope.jwtClientIdSecret ? 'jwt' : 'sfdx-url');
   toOutput('authType', authType);
@@ -33,6 +59,7 @@ function outputAuthSettings(scope, fallbackAuthSecret) {
 
 function main() {
   const config = getConfig();
+  ensureUniformAuthType(config);
   const mode = process.argv[2];
   const branchArg = process.argv[3];
   const branch = normalizeBranch(branchArg || process.env.GITHUB_REF || '');
