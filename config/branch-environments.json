@@ -3,12 +3,14 @@
   "environments": {
     "develop": {
       "name": "DEV_SANDBOX",
+      "authType": "sfdx-url",
       "authSecret": "SF_AUTH_URL_DEV",
       "testLevel": "RunLocalTests",
       "promotionTarget": "uat"
     },
     "uat": {
       "name": "UAT_SANDBOX",
+      "authType": "sfdx-url",
       "authSecret": "SF_AUTH_URL_UAT",
       "testLevel": "RunLocalTests",
       "promotionTarget": "master"
@@ -18,6 +20,7 @@
     "sourceBranch": "master",
     "trackingBranch": "production",
     "name": "PRODUCTION",
+    "authType": "sfdx-url",
     "authSecret": "SF_AUTH_URL_PROD",
     "testLevel": "RunLocalTests"
   }

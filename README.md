@@ -110,14 +110,19 @@ Fields:
 
 - `defaultFeatureBaseBranch`: branch used to compute feature branch manifest delta.
 - `environments`: map of branch name to sandbox deployment target.
-	- `name`: label for environment.
-	- `authSecret`: GitHub secret name containing SFDX auth URL.
-	- `testLevel`: Salesforce test level for deploy/validate.
-	- `promotionTarget`: branch that receives the auto-promotion PR after a successful deploy.
+  - `name`: label for environment.
+  - `authType`: `sfdx-url` (default) or `jwt`.
+  - `authSecret`: GitHub secret name containing SFDX auth URL (used for `sfdx-url`).
+  - `jwtClientIdSecret`: GitHub secret name containing Connected App consumer key (used for `jwt`).
+  - `jwtUsernameSecret`: GitHub secret name containing Salesforce username (used for `jwt`).
+  - `jwtPrivateKeySecret`: GitHub secret name containing RSA private key PEM (used for `jwt`).
+  - `jwtLoginUrl`: Salesforce login URL for JWT auth, for example `https://login.salesforce.com` or `https://test.salesforce.com`.
+  - `testLevel`: Salesforce test level for deploy/validate.
+  - `promotionTarget`: branch that receives the auto-promotion PR after a successful deploy.
 - `production`: production deployment settings.
 	- `sourceBranch`: branch that triggers production deploy (default `master`).
 	- `trackingBranch`: branch updated after successful production deploy (default `production`).
-	- `authSecret`: GitHub secret name for production auth URL.
+  - same auth fields as sandbox environments (`authType`, `authSecret`, `jwt*`, `jwtLoginUrl`).
 
 ### Field reference
 
@@ -125,7 +130,12 @@ Fields:
 |---|---|
 | `environments` key | Which Git branch triggers a deploy to that org |
 | `name` | Display label in logs and PR titles |
+| `authType` | `sfdx-url` or `jwt` |
 | `authSecret` | Which GitHub secret holds the org's SFDX auth URL |
+| `jwtClientIdSecret` | Secret name for Connected App consumer key |
+| `jwtUsernameSecret` | Secret name for Salesforce username |
+| `jwtPrivateKeySecret` | Secret name for RSA private key PEM |
+| `jwtLoginUrl` | Login URL used for JWT auth |
 | `testLevel` | `RunLocalTests`, `RunAllTestsInOrg`, or `NoTestRun` |
 | `promotionTarget` | Which branch gets the auto-promotion PR after a successful deploy |
 | `production.sourceBranch` | Which branch triggers the production deploy workflow |
@@ -189,6 +199,35 @@ Create these repository secrets (or rename in config):
 - `SF_AUTH_URL_PROD`
 
 Each value must be an SFDX auth URL for the corresponding org.
+
+For GitHub-only authentication (no local browser login dependency), use JWT auth and store these instead:
+
+- `<ENV>_JWT_CLIENT_ID` (Connected App consumer key)
+- `<ENV>_JWT_USERNAME` (Salesforce username)
+- `<ENV>_JWT_PRIVATE_KEY` (full PEM private key)
+
+Then set `authType` to `jwt` and map the corresponding `jwt*Secret` names in `config/branch-environments.json`.
+
+## GitHub-Only Authentication (JWT)
+
+If you want admins to manage auth using only GitHub UI and Actions (no local CLI commands), configure JWT auth per environment.
+
+Example environment config:
+
+```json
+"develop": {
+  "name": "DEV_SANDBOX",
+  "authType": "jwt",
+  "jwtClientIdSecret": "DEV_JWT_CLIENT_ID",
+  "jwtUsernameSecret": "DEV_JWT_USERNAME",
+  "jwtPrivateKeySecret": "DEV_JWT_PRIVATE_KEY",
+  "jwtLoginUrl": "https://test.salesforce.com",
+  "testLevel": "RunLocalTests",
+  "promotionTarget": "uat"
+}
+```
+
+Once these secrets are populated in GitHub, all workflows authenticate from Actions only.
 
 ## One-Time Interactive Org Authentication Setup
 

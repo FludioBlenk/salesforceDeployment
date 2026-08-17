@@ -21,6 +21,16 @@ function normalizeBranch(rawBranch) {
   return (rawBranch || '').replace(/^refs\/heads\//, '');
 }
 
+function outputAuthSettings(scope, fallbackAuthSecret) {
+  const authType = scope.authType || (scope.jwtClientIdSecret ? 'jwt' : 'sfdx-url');
+  toOutput('authType', authType);
+  toOutput('authSecret', scope.authSecret || fallbackAuthSecret || '');
+  toOutput('jwtClientIdSecret', scope.jwtClientIdSecret || '');
+  toOutput('jwtUsernameSecret', scope.jwtUsernameSecret || '');
+  toOutput('jwtPrivateKeySecret', scope.jwtPrivateKeySecret || '');
+  toOutput('jwtLoginUrl', scope.jwtLoginUrl || 'https://login.salesforce.com');
+}
+
 function main() {
   const config = getConfig();
   const mode = process.argv[2];
@@ -41,7 +51,7 @@ function main() {
     toOutput('isDeployable', 'true');
     toOutput('branch', branch);
     toOutput('envName', env.name);
-    toOutput('authSecret', env.authSecret);
+    outputAuthSettings(env);
     toOutput('testLevel', env.testLevel || 'RunLocalTests');
     toOutput('promotionTarget', env.promotionTarget || '');
     return;
@@ -54,7 +64,7 @@ function main() {
     toOutput('sourceBranch', prod.sourceBranch || 'master');
     toOutput('trackingBranch', prod.trackingBranch || 'production');
     toOutput('envName', prod.name || 'PRODUCTION');
-    toOutput('authSecret', prod.authSecret || 'SF_AUTH_URL_PROD');
+    outputAuthSettings(prod, 'SF_AUTH_URL_PROD');
     toOutput('testLevel', prod.testLevel || 'RunLocalTests');
     return;
   }

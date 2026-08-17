@@ -25,6 +25,11 @@ jobs:
       isDeployable: ${{ steps.resolve.outputs.isDeployable }}
       envName: ${{ steps.resolve.outputs.envName }}
       authSecret: ${{ steps.resolve.outputs.authSecret }}
+      authType: ${{ steps.resolve.outputs.authType }}
+      jwtClientIdSecret: ${{ steps.resolve.outputs.jwtClientIdSecret }}
+      jwtUsernameSecret: ${{ steps.resolve.outputs.jwtUsernameSecret }}
+      jwtPrivateKeySecret: ${{ steps.resolve.outputs.jwtPrivateKeySecret }}
+      jwtLoginUrl: ${{ steps.resolve.outputs.jwtLoginUrl }}
       testLevel: ${{ steps.resolve.outputs.testLevel }}
       promotionTarget: ${{ steps.resolve.outputs.promotionTarget }}
     steps:
@@ -48,9 +53,38 @@ jobs:
         run: npm install -g @salesforce/cli
 
       - name: Authenticate to sandbox
+        env:
+          AUTH_TYPE: ${{ needs.resolve-target.outputs.authType }}
+          AUTH_VALUE: ${{ secrets[needs.resolve-target.outputs.authSecret] }}
+          JWT_CLIENT_ID: ${{ secrets[needs.resolve-target.outputs.jwtClientIdSecret] }}
+          JWT_USERNAME: ${{ secrets[needs.resolve-target.outputs.jwtUsernameSecret] }}
+          JWT_PRIVATE_KEY: ${{ secrets[needs.resolve-target.outputs.jwtPrivateKeySecret] }}
+          JWT_LOGIN_URL: ${{ needs.resolve-target.outputs.jwtLoginUrl }}
         shell: bash
         run: |
-          echo "${{ secrets[needs.resolve-target.outputs.authSecret] }}" > ./SFDX_AUTH_URL.txt
+          if [ "$AUTH_TYPE" = "jwt" ]; then
+            if [ -z "$JWT_CLIENT_ID" ] || [ -z "$JWT_USERNAME" ] || [ -z "$JWT_PRIVATE_KEY" ]; then
+              echo "JWT auth is configured but one or more JWT secrets are missing."
+              exit 1
+            fi
+
+            printf '%s' "$JWT_PRIVATE_KEY" > ./jwt.key
+            sf org login jwt \
+              --client-id "$JWT_CLIENT_ID" \
+              --jwt-key-file ./jwt.key \
+              --username "$JWT_USERNAME" \
+              --instance-url "$JWT_LOGIN_URL" \
+              --alias deploy-target
+            rm -f ./jwt.key
+            exit 0
+          fi
+
+          if [ -z "$AUTH_VALUE" ]; then
+            echo "SFDX auth URL secret is empty or missing."
+            exit 1
+          fi
+
+          printf '%s' "$AUTH_VALUE" > ./SFDX_AUTH_URL.txt
           sf org login sfdx-url --sfdx-url-file ./SFDX_AUTH_URL.txt --alias deploy-target
           rm -f ./SFDX_AUTH_URL.txt
 
